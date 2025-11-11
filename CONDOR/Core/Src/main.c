@@ -43,6 +43,8 @@
 
 TIM_HandleTypeDef htim2;
 
+UART_HandleTypeDef huart1;
+
 /* USER CODE BEGIN PV */
 
 /* USER CODE END PV */
@@ -52,6 +54,7 @@ void SystemClock_Config(void);
 static void MPU_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_TIM2_Init(void);
+static void MX_USART1_UART_Init(void);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
@@ -94,6 +97,7 @@ int main(void)
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
   MX_TIM2_Init();
+  MX_USART1_UART_Init();
   /* USER CODE BEGIN 2 */
   HAL_NVIC_SetPriority(TIM2_IRQn, 1, 0);
   HAL_NVIC_EnableIRQ(TIM2_IRQn);
@@ -104,28 +108,6 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-
-	  uint64_t t1 = micros64();
-	  HAL_Delay(10);  // Simulación: esperar 10 ms
-	  uint64_t t2 = micros64();
-	  uint64_t delta = t2 - t1;  // tiempo transcurrido en µs
-
-      static uint32_t last_index = 0;
-
-      if (last_index != event_index)
-      {
-          uint16_t pin = event_buffer[last_index].pin;
-          uint64_t time = event_buffer[last_index].timestamp;
-
-          // INTENTO DE PRINT PARA PROBAR LOS TIMESTAMPS
-          printf("Interrupcion detectada en pin PF%d - tiempo: %llu us\r\n",
-                  __builtin_ctz(pin),
-                  time);
-
-          last_index++;
-          if (last_index >= MAX_EVENTS)
-              last_index = 0;
-      }
 
     /* USER CODE END WHILE */
 
@@ -253,6 +235,54 @@ static void MX_TIM2_Init(void)
 }
 
 /**
+  * @brief USART1 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_USART1_UART_Init(void)
+{
+
+  /* USER CODE BEGIN USART1_Init 0 */
+
+  /* USER CODE END USART1_Init 0 */
+
+  /* USER CODE BEGIN USART1_Init 1 */
+
+  /* USER CODE END USART1_Init 1 */
+  huart1.Instance = USART1;
+  huart1.Init.BaudRate = 115200;
+  huart1.Init.WordLength = UART_WORDLENGTH_8B;
+  huart1.Init.StopBits = UART_STOPBITS_1;
+  huart1.Init.Parity = UART_PARITY_NONE;
+  huart1.Init.Mode = UART_MODE_TX_RX;
+  huart1.Init.HwFlowCtl = UART_HWCONTROL_NONE;
+  huart1.Init.OverSampling = UART_OVERSAMPLING_16;
+  huart1.Init.OneBitSampling = UART_ONE_BIT_SAMPLE_DISABLE;
+  huart1.Init.ClockPrescaler = UART_PRESCALER_DIV1;
+  huart1.AdvancedInit.AdvFeatureInit = UART_ADVFEATURE_NO_INIT;
+  if (HAL_UART_Init(&huart1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if (HAL_UARTEx_SetTxFifoThreshold(&huart1, UART_TXFIFO_THRESHOLD_1_8) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if (HAL_UARTEx_SetRxFifoThreshold(&huart1, UART_RXFIFO_THRESHOLD_1_8) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if (HAL_UARTEx_DisableFifoMode(&huart1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN USART1_Init 2 */
+
+  /* USER CODE END USART1_Init 2 */
+
+}
+
+/**
   * @brief GPIO Initialization Function
   * @param None
   * @retval None
@@ -267,6 +297,7 @@ static void MX_GPIO_Init(void)
   /* GPIO Ports Clock Enable */
   __HAL_RCC_GPIOF_CLK_ENABLE();
   __HAL_RCC_GPIOA_CLK_ENABLE();
+  __HAL_RCC_GPIOB_CLK_ENABLE();
 
   /*Configure GPIO pins : PF0 PF1 PF2 PF3
                            PF4 PF5 PF6 PF7
@@ -307,49 +338,95 @@ static void MX_GPIO_Init(void)
 #define MAX_EVENTS 100
 
 typedef struct {
-    uint16_t pin;
-    uint64_t timestamp;
+    uint8_t  channel_id;
+    uint64_t timestamp_us;
 } Event;
 
 volatile Event event_buffer[MAX_EVENTS];
 volatile uint32_t event_index = 0;
+volatile uint64_t timer_high = 0;
 
-void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
+// Ventana ajustable (µs)
+uint64_t coincidence_window_us = 50;
+
+// Último evento
+volatile Event last_event = {0, 0};
+
+// Asignación de canal según pin
+uint8_t get_channel_id(uint16_t GPIO_Pin)
 {
-    // Esto se encarga de capturar el timestamp para detectar el flanco de los pines PF0 a PF9
-    uint64_t t = micros64();
-
-    event_buffer[event_index].pin = GPIO_Pin;
-    event_buffer[event_index].timestamp = t;
-
-    event_index++;
-    if (event_index >= MAX_EVENTS)
-        event_index = 0;
-}
-
-volatile uint32_t timer_high = 0;  // parte alta del timestamp
-
-void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
-{
-    if (htim->Instance == TIM2)
+    switch (GPIO_Pin)
     {
-        timer_high++;  // cada overflow aumenta el contador alto
+        case GPIO_PIN_0: return 1;
+        case GPIO_PIN_1: return 2;
+        case GPIO_PIN_2: return 3;
+        case GPIO_PIN_3: return 4;
+        case GPIO_PIN_4: return 5;
+        case GPIO_PIN_5: return 6;
+        case GPIO_PIN_6: return 7;
+        case GPIO_PIN_7: return 8;
+        case GPIO_PIN_8: return 9;
+        case GPIO_PIN_9: return 10;
+        default: return 0;
     }
 }
 
-
-// Contador de 32 bits
+// Función de timestamp extendido (64 bits)
 uint64_t micros64(void)
 {
     uint32_t low = __HAL_TIM_GET_COUNTER(&htim2);
     uint64_t high = timer_high;
 
-    if (__HAL_TIM_GET_FLAG(&htim2, TIM_FLAG_UPDATE)) // Esto es por si se desborda
+    if (__HAL_TIM_GET_FLAG(&htim2, TIM_FLAG_UPDATE)) // Si hubo overflow
     {
         high++;
         low = __HAL_TIM_GET_COUNTER(&htim2);
     }
     return (high << 32) | low;
+}
+
+// Callback de overflow de TIM2
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
+{
+    if (htim->Instance == TIM2)
+        timer_high++;
+}
+
+// Callback de interrupciones GPIO
+void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
+{
+    uint64_t now = micros64();
+    uint8_t channel = get_channel_id(GPIO_Pin);
+    /* Probar hacer la Asignación de canal dentro de la funcion */
+
+    // Guardar evento en buffer circular
+    event_buffer[event_index].channel_id = channel;
+    event_buffer[event_index].timestamp_us = now;
+    event_index++;
+    if (event_index >= MAX_EVENTS)
+        event_index = 0;
+
+    // Calcular diferencia de tiempo con el evento anterior
+    uint64_t delta = (now > last_event.timestamp_us)
+                     ? (now - last_event.timestamp_us)
+                     : (last_event.timestamp_us - now);
+
+    // Quitar coincidencia (No es necesaria)
+    if (last_event.channel_id != 0 && delta <= coincidence_window_us)
+    {
+        // Coincidencia detectada
+        printf("C: CH%u & CH%u (delta_t=%llu us)\r\n",
+               last_event.channel_id, channel, delta);
+    }
+    else
+    {
+        // Evento normal
+        printf("D: CH%u (t=%llu us)\r\n", channel, now);
+    }
+
+    // Actualizar último evento
+    last_event.channel_id = channel;
+    last_event.timestamp_us = now;
 }
 
 /* USER CODE END 4 */
@@ -397,8 +474,7 @@ void Error_Handler(void)
   }
   /* USER CODE END Error_Handler_Debug */
 }
-
-#ifdef  USE_FULL_ASSERT
+#ifdef USE_FULL_ASSERT
 /**
   * @brief  Reports the name of the source file and the source line number
   *         where the assert_param error has occurred.
