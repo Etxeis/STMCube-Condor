@@ -21,17 +21,27 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include <stdio.h>
 
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
+typedef struct {
+    uint8_t channel;
+    uint32_t timestamp;
+} Event;
 
 /* USER CODE END PTD */
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
+#define PUTCHAR_PROTOTYPE 		int __io_putchar(int ch)
 
+#define IC_BUF_LEN 16
+#define MAX_EVENTS 128
+
+#define COINCIDENCE_WINDOW 2000
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -42,10 +52,36 @@
 /* Private variables ---------------------------------------------------------*/
 
 TIM_HandleTypeDef htim2;
+DMA_HandleTypeDef hdma_tim2_ch1;
+DMA_HandleTypeDef hdma_tim2_ch2;
+DMA_HandleTypeDef hdma_tim2_ch3;
+DMA_HandleTypeDef hdma_tim2_ch4;
 
-UART_HandleTypeDef huart1;
+UART_HandleTypeDef huart3;
 
 /* USER CODE BEGIN PV */
+
+/* Buffers DMA por canal */
+uint32_t ic_ch1_buf[IC_BUF_LEN];
+uint32_t ic_ch2_buf[IC_BUF_LEN];
+uint32_t ic_ch3_buf[IC_BUF_LEN];
+uint32_t ic_ch4_buf[IC_BUF_LEN];
+
+// Flags para los canales
+volatile uint8_t ic_ch1_ready = 0;
+volatile uint8_t ic_ch2_ready = 0;
+volatile uint8_t ic_ch3_ready = 0;
+volatile uint8_t ic_ch4_ready = 0;
+
+/* Eventos */
+volatile Event event_buffer[MAX_EVENTS];
+volatile uint32_t event_index = 0;
+
+/* Extensión 64 bits */
+volatile uint32_t timer_high = 0;
+
+volatile Event last_event = {0, 0};
+
 
 /* USER CODE END PV */
 
@@ -53,10 +89,12 @@ UART_HandleTypeDef huart1;
 void SystemClock_Config(void);
 static void MPU_Config(void);
 static void MX_GPIO_Init(void);
+static void MX_DMA_Init(void);
 static void MX_TIM2_Init(void);
-static void MX_USART1_UART_Init(void);
+static void MX_USART3_UART_Init(void);
 /* USER CODE BEGIN PFP */
-
+//static inline void push_event(uint8_t ch, uint32_t ts_low);
+void Print_IC_Buffer(uint8_t ch, uint32_t *buf, uint32_t len);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -96,22 +134,48 @@ int main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
+  MX_DMA_Init();
   MX_TIM2_Init();
-  MX_USART1_UART_Init();
+  MX_USART3_UART_Init();
   /* USER CODE BEGIN 2 */
   HAL_NVIC_SetPriority(TIM2_IRQn, 1, 0);
   HAL_NVIC_EnableIRQ(TIM2_IRQn);
   HAL_TIM_Base_Start_IT(&htim2);
+  HAL_TIM_IC_Start_DMA(&htim2, TIM_CHANNEL_1, ic_ch1_buf, IC_BUF_LEN);
+  HAL_TIM_IC_Start_DMA(&htim2, TIM_CHANNEL_2, ic_ch2_buf, IC_BUF_LEN);
+  HAL_TIM_IC_Start_DMA(&htim2, TIM_CHANNEL_3, ic_ch3_buf, IC_BUF_LEN);
+  HAL_TIM_IC_Start_DMA(&htim2, TIM_CHANNEL_4, ic_ch4_buf, IC_BUF_LEN);
+
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
+  printf("Hello - Test\n");
   while (1)
   {
-
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
+      if (ic_ch1_ready)
+      {
+          ic_ch1_ready = 0;
+          Print_IC_Buffer(1, ic_ch1_buf, IC_BUF_LEN);
+      }
+      if (ic_ch2_ready)
+      {
+          ic_ch2_ready = 0;
+          Print_IC_Buffer(2, ic_ch2_buf, IC_BUF_LEN);
+      }
+      if (ic_ch3_ready)
+      {
+          ic_ch3_ready = 0;
+          Print_IC_Buffer(3, ic_ch3_buf, IC_BUF_LEN);
+      }
+      if (ic_ch4_ready)
+      {
+          ic_ch4_ready = 0;
+          Print_IC_Buffer(4, ic_ch4_buf, IC_BUF_LEN);
+      }
   }
   /* USER CODE END 3 */
 }
@@ -131,7 +195,7 @@ void SystemClock_Config(void)
 
   /** Configure the main internal regulator output voltage
   */
-  __HAL_PWR_VOLTAGESCALING_CONFIG(PWR_REGULATOR_VOLTAGE_SCALE2);
+  __HAL_PWR_VOLTAGESCALING_CONFIG(PWR_REGULATOR_VOLTAGE_SCALE0);
 
   while(!__HAL_PWR_GET_FLAG(PWR_FLAG_VOSRDY)) {}
 
@@ -144,13 +208,13 @@ void SystemClock_Config(void)
   RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
   RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSI;
   RCC_OscInitStruct.PLL.PLLM = 4;
-  RCC_OscInitStruct.PLL.PLLN = 12;
+  RCC_OscInitStruct.PLL.PLLN = 34;
   RCC_OscInitStruct.PLL.PLLP = 1;
   RCC_OscInitStruct.PLL.PLLQ = 4;
   RCC_OscInitStruct.PLL.PLLR = 2;
   RCC_OscInitStruct.PLL.PLLRGE = RCC_PLL1VCIRANGE_3;
   RCC_OscInitStruct.PLL.PLLVCOSEL = RCC_PLL1VCOWIDE;
-  RCC_OscInitStruct.PLL.PLLFRACN = 0;
+  RCC_OscInitStruct.PLL.PLLFRACN = 3072;
   if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
   {
     Error_Handler();
@@ -169,7 +233,7 @@ void SystemClock_Config(void)
   RCC_ClkInitStruct.APB2CLKDivider = RCC_APB2_DIV2;
   RCC_ClkInitStruct.APB4CLKDivider = RCC_APB4_DIV2;
 
-  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_1) != HAL_OK)
+  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_3) != HAL_OK)
   {
     Error_Handler();
   }
@@ -189,13 +253,13 @@ static void MX_TIM2_Init(void)
 
   TIM_ClockConfigTypeDef sClockSourceConfig = {0};
   TIM_MasterConfigTypeDef sMasterConfig = {0};
-  TIM_OC_InitTypeDef sConfigOC = {0};
+  TIM_IC_InitTypeDef sConfigIC = {0};
 
   /* USER CODE BEGIN TIM2_Init 1 */
 
   /* USER CODE END TIM2_Init 1 */
   htim2.Instance = TIM2;
-  htim2.Init.Prescaler = 239;
+  htim2.Init.Prescaler = 0;
   htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
   htim2.Init.Period = 4294967295;
   htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
@@ -209,7 +273,7 @@ static void MX_TIM2_Init(void)
   {
     Error_Handler();
   }
-  if (HAL_TIM_PWM_Init(&htim2) != HAL_OK)
+  if (HAL_TIM_IC_Init(&htim2) != HAL_OK)
   {
     Error_Handler();
   }
@@ -219,66 +283,103 @@ static void MX_TIM2_Init(void)
   {
     Error_Handler();
   }
-  sConfigOC.OCMode = TIM_OCMODE_PWM1;
-  sConfigOC.Pulse = 0;
-  sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
-  sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
-  if (HAL_TIM_PWM_ConfigChannel(&htim2, &sConfigOC, TIM_CHANNEL_1) != HAL_OK)
+  sConfigIC.ICPolarity = TIM_INPUTCHANNELPOLARITY_FALLING;
+  sConfigIC.ICSelection = TIM_ICSELECTION_DIRECTTI;
+  sConfigIC.ICPrescaler = TIM_ICPSC_DIV1;
+  sConfigIC.ICFilter = 0;
+  if (HAL_TIM_IC_ConfigChannel(&htim2, &sConfigIC, TIM_CHANNEL_1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sConfigIC.ICPolarity = TIM_INPUTCHANNELPOLARITY_RISING;
+  if (HAL_TIM_IC_ConfigChannel(&htim2, &sConfigIC, TIM_CHANNEL_2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if (HAL_TIM_IC_ConfigChannel(&htim2, &sConfigIC, TIM_CHANNEL_3) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if (HAL_TIM_IC_ConfigChannel(&htim2, &sConfigIC, TIM_CHANNEL_4) != HAL_OK)
   {
     Error_Handler();
   }
   /* USER CODE BEGIN TIM2_Init 2 */
 
   /* USER CODE END TIM2_Init 2 */
-  HAL_TIM_MspPostInit(&htim2);
 
 }
 
 /**
-  * @brief USART1 Initialization Function
+  * @brief USART3 Initialization Function
   * @param None
   * @retval None
   */
-static void MX_USART1_UART_Init(void)
+static void MX_USART3_UART_Init(void)
 {
 
-  /* USER CODE BEGIN USART1_Init 0 */
+  /* USER CODE BEGIN USART3_Init 0 */
 
-  /* USER CODE END USART1_Init 0 */
+  /* USER CODE END USART3_Init 0 */
 
-  /* USER CODE BEGIN USART1_Init 1 */
+  /* USER CODE BEGIN USART3_Init 1 */
 
-  /* USER CODE END USART1_Init 1 */
-  huart1.Instance = USART1;
-  huart1.Init.BaudRate = 115200;
-  huart1.Init.WordLength = UART_WORDLENGTH_8B;
-  huart1.Init.StopBits = UART_STOPBITS_1;
-  huart1.Init.Parity = UART_PARITY_NONE;
-  huart1.Init.Mode = UART_MODE_TX_RX;
-  huart1.Init.HwFlowCtl = UART_HWCONTROL_NONE;
-  huart1.Init.OverSampling = UART_OVERSAMPLING_16;
-  huart1.Init.OneBitSampling = UART_ONE_BIT_SAMPLE_DISABLE;
-  huart1.Init.ClockPrescaler = UART_PRESCALER_DIV1;
-  huart1.AdvancedInit.AdvFeatureInit = UART_ADVFEATURE_NO_INIT;
-  if (HAL_UART_Init(&huart1) != HAL_OK)
+  /* USER CODE END USART3_Init 1 */
+  huart3.Instance = USART3;
+  huart3.Init.BaudRate = 115200;
+  huart3.Init.WordLength = UART_WORDLENGTH_8B;
+  huart3.Init.StopBits = UART_STOPBITS_1;
+  huart3.Init.Parity = UART_PARITY_NONE;
+  huart3.Init.Mode = UART_MODE_TX_RX;
+  huart3.Init.HwFlowCtl = UART_HWCONTROL_NONE;
+  huart3.Init.OverSampling = UART_OVERSAMPLING_16;
+  huart3.Init.OneBitSampling = UART_ONE_BIT_SAMPLE_DISABLE;
+  huart3.Init.ClockPrescaler = UART_PRESCALER_DIV1;
+  huart3.AdvancedInit.AdvFeatureInit = UART_ADVFEATURE_NO_INIT;
+  if (HAL_UART_Init(&huart3) != HAL_OK)
   {
     Error_Handler();
   }
-  if (HAL_UARTEx_SetTxFifoThreshold(&huart1, UART_TXFIFO_THRESHOLD_1_8) != HAL_OK)
+  if (HAL_UARTEx_SetTxFifoThreshold(&huart3, UART_TXFIFO_THRESHOLD_1_8) != HAL_OK)
   {
     Error_Handler();
   }
-  if (HAL_UARTEx_SetRxFifoThreshold(&huart1, UART_RXFIFO_THRESHOLD_1_8) != HAL_OK)
+  if (HAL_UARTEx_SetRxFifoThreshold(&huart3, UART_RXFIFO_THRESHOLD_1_8) != HAL_OK)
   {
     Error_Handler();
   }
-  if (HAL_UARTEx_DisableFifoMode(&huart1) != HAL_OK)
+  if (HAL_UARTEx_DisableFifoMode(&huart3) != HAL_OK)
   {
     Error_Handler();
   }
-  /* USER CODE BEGIN USART1_Init 2 */
+  /* USER CODE BEGIN USART3_Init 2 */
 
-  /* USER CODE END USART1_Init 2 */
+  /* USER CODE END USART3_Init 2 */
+
+}
+
+/**
+  * Enable DMA controller clock
+  */
+static void MX_DMA_Init(void)
+{
+
+  /* DMA controller clock enable */
+  __HAL_RCC_DMA1_CLK_ENABLE();
+
+  /* DMA interrupt init */
+  /* DMA1_Stream0_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(DMA1_Stream0_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(DMA1_Stream0_IRQn);
+  /* DMA1_Stream1_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(DMA1_Stream1_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(DMA1_Stream1_IRQn);
+  /* DMA1_Stream2_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(DMA1_Stream2_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(DMA1_Stream2_IRQn);
+  /* DMA1_Stream3_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(DMA1_Stream3_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(DMA1_Stream3_IRQn);
 
 }
 
@@ -289,44 +390,13 @@ static void MX_USART1_UART_Init(void)
   */
 static void MX_GPIO_Init(void)
 {
-  GPIO_InitTypeDef GPIO_InitStruct = {0};
   /* USER CODE BEGIN MX_GPIO_Init_1 */
 
   /* USER CODE END MX_GPIO_Init_1 */
 
   /* GPIO Ports Clock Enable */
-  __HAL_RCC_GPIOF_CLK_ENABLE();
   __HAL_RCC_GPIOA_CLK_ENABLE();
   __HAL_RCC_GPIOB_CLK_ENABLE();
-
-  /*Configure GPIO pins : PF0 PF1 PF2 PF3
-                           PF4 PF5 PF6 PF7
-                           PF8 PF9 */
-  GPIO_InitStruct.Pin = GPIO_PIN_0|GPIO_PIN_1|GPIO_PIN_2|GPIO_PIN_3
-                          |GPIO_PIN_4|GPIO_PIN_5|GPIO_PIN_6|GPIO_PIN_7
-                          |GPIO_PIN_8|GPIO_PIN_9;
-  GPIO_InitStruct.Mode = GPIO_MODE_IT_FALLING;
-  GPIO_InitStruct.Pull = GPIO_PULLUP;
-  HAL_GPIO_Init(GPIOF, &GPIO_InitStruct);
-
-  /* EXTI interrupt init*/
-  HAL_NVIC_SetPriority(EXTI0_IRQn, 0, 0);
-  HAL_NVIC_EnableIRQ(EXTI0_IRQn);
-
-  HAL_NVIC_SetPriority(EXTI1_IRQn, 0, 0);
-  HAL_NVIC_EnableIRQ(EXTI1_IRQn);
-
-  HAL_NVIC_SetPriority(EXTI2_IRQn, 0, 0);
-  HAL_NVIC_EnableIRQ(EXTI2_IRQn);
-
-  HAL_NVIC_SetPriority(EXTI3_IRQn, 0, 0);
-  HAL_NVIC_EnableIRQ(EXTI3_IRQn);
-
-  HAL_NVIC_SetPriority(EXTI4_IRQn, 0, 0);
-  HAL_NVIC_EnableIRQ(EXTI4_IRQn);
-
-  HAL_NVIC_SetPriority(EXTI9_5_IRQn, 0, 0);
-  HAL_NVIC_EnableIRQ(EXTI9_5_IRQn);
 
   /* USER CODE BEGIN MX_GPIO_Init_2 */
 
@@ -335,98 +405,110 @@ static void MX_GPIO_Init(void)
 
 /* USER CODE BEGIN 4 */
 
-#define MAX_EVENTS 100
-
-typedef struct {
-    uint8_t  channel_id;
-    uint64_t timestamp_us;
-} Event;
-
-volatile Event event_buffer[MAX_EVENTS];
-volatile uint32_t event_index = 0;
-volatile uint64_t timer_high = 0;
-
-// Ventana ajustable (µs)
-uint64_t coincidence_window_us = 50;
-
-// Último evento
-volatile Event last_event = {0, 0};
-
-// Asignación de canal según pin
-uint8_t get_channel_id(uint16_t GPIO_Pin)
+// En esta función hacemos el callback del DMA se ejecute cuando el buffer esté completo
+void HAL_TIM_IC_DMACompleteCallback(TIM_HandleTypeDef *htim)
 {
-    switch (GPIO_Pin)
+    if (htim->Instance == TIM2)
     {
-        case GPIO_PIN_0: return 1;
-        case GPIO_PIN_1: return 2;
-        case GPIO_PIN_2: return 3;
-        case GPIO_PIN_3: return 4;
-        case GPIO_PIN_4: return 5;
-        case GPIO_PIN_5: return 6;
-        case GPIO_PIN_6: return 7;
-        case GPIO_PIN_7: return 8;
-        case GPIO_PIN_8: return 9;
-        case GPIO_PIN_9: return 10;
-        default: return 0;
+        if (htim->Channel == HAL_TIM_ACTIVE_CHANNEL_1)
+            ic_ch1_ready = 1;
+
+        else if (htim->Channel == HAL_TIM_ACTIVE_CHANNEL_2)
+            ic_ch2_ready = 1;
+
+        else if (htim->Channel == HAL_TIM_ACTIVE_CHANNEL_3)
+            ic_ch3_ready = 1;
+
+        else if (htim->Channel == HAL_TIM_ACTIVE_CHANNEL_4)
+            ic_ch4_ready = 1;
     }
 }
 
-// Función de timestamp extendido (64 bits)
-uint64_t micros64(void)
+// Función para imprimir los buffers
+void Print_IC_Buffer(uint8_t ch, uint32_t *buf, uint32_t len)
 {
-    uint32_t low = __HAL_TIM_GET_COUNTER(&htim2);
-    uint64_t high = timer_high;
-
-    if (__HAL_TIM_GET_FLAG(&htim2, TIM_FLAG_UPDATE)) // Si hubo overflow
+    for (uint32_t i = 0; i < len; i++)
     {
-        high++;
-        low = __HAL_TIM_GET_COUNTER(&htim2);
+        printf("EVENTO: CH%u | t=%lu\r\n", ch, buf[i]);
     }
-    return (high << 32) | low;
 }
 
-// Callback de overflow de TIM2
+
+// En standby, primero hay que ver como se almacenan los timestamp en los buffers
+/* Inserta evento y detecta coincidencias */
+//static inline void push_event(uint8_t ch, uint32_t ts_low)
+//{
+//    uint32_t ts = (timer_high << 32) | ts_low;
+//
+//    event_buffer[event_index].channel   = ch;
+//    event_buffer[event_index].timestamp = ts;
+//    event_index = (event_index + 1) % MAX_EVENTS;
+//
+//    if (last_event.channel != 0)
+//    {
+//        uint32_t dt =
+//            (ts > last_event.timestamp)
+//            ? (ts - last_event.timestamp)
+//            : (last_event.timestamp - ts);
+//
+//        if (dt <= COINCIDENCE_WINDOW)
+//        {
+//            printf("COINCIDENCIA: CH%u & CH%u | t=%llu | dt=%llu\r\n",
+//                   last_event.channel, ch, ts, dt);
+//        }
+//        else
+//        {
+//            printf("EVENTO: CH%u | t=%llu\r\n", ch, ts);
+//        }
+//    }
+//    else
+//    {
+//        printf("EVENTO: CH%u | t=%llu\r\n", ch, ts);
+//    }
+//
+//    last_event.channel   = ch;
+//    last_event.timestamp = ts;
+//}
+
+// NO es necesario, ya se sabe cual es el canal correspondiente a cada buffer
+/* Callback DMA Input Capture */
+//void HAL_TIM_IC_CaptureCpltCallback(TIM_HandleTypeDef *htim)
+//{
+//    if (htim->Instance != TIM2)
+//        return;
+//
+//    uint8_t ch = 0;
+//    uint32_t *buf = NULL;
+//
+//    if (htim->Channel == HAL_TIM_ACTIVE_CHANNEL_1)
+//        { ch = 1; buf = ic_ch1_buf; }
+//    else if (htim->Channel == HAL_TIM_ACTIVE_CHANNEL_2)
+//        { ch = 2; buf = ic_ch2_buf; }
+//    else if (htim->Channel == HAL_TIM_ACTIVE_CHANNEL_3)
+//        { ch = 3; buf = ic_ch3_buf; }
+//    else if (htim->Channel == HAL_TIM_ACTIVE_CHANNEL_4)
+//        { ch = 4; buf = ic_ch4_buf; }
+//
+//    if (!buf)
+//        return;
+//
+//    for (uint32_t i = 0; i < IC_BUF_LEN; i++)
+//        push_event(ch, buf[i]);
+//}
+//
+
+/* Overflow del TIM2 → extiende a 64 bits */
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 {
     if (htim->Instance == TIM2)
         timer_high++;
 }
 
-// Callback de interrupciones GPIO
-void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
+/* Redirección printf a UART */
+PUTCHAR_PROTOTYPE
 {
-    uint64_t now = micros64();
-    uint8_t channel = get_channel_id(GPIO_Pin);
-    /* Probar hacer la Asignación de canal dentro de la funcion */
-
-    // Guardar evento en buffer circular
-    event_buffer[event_index].channel_id = channel;
-    event_buffer[event_index].timestamp_us = now;
-    event_index++;
-    if (event_index >= MAX_EVENTS)
-        event_index = 0;
-
-    // Calcular diferencia de tiempo con el evento anterior
-    uint64_t delta = (now > last_event.timestamp_us)
-                     ? (now - last_event.timestamp_us)
-                     : (last_event.timestamp_us - now);
-
-    // Quitar coincidencia (No es necesaria)
-    if (last_event.channel_id != 0 && delta <= coincidence_window_us)
-    {
-        // Coincidencia detectada
-        printf("C: CH%u & CH%u (delta_t=%llu us)\r\n",
-               last_event.channel_id, channel, delta);
-    }
-    else
-    {
-        // Evento normal
-        printf("D: CH%u (t=%llu us)\r\n", channel, now);
-    }
-
-    // Actualizar último evento
-    last_event.channel_id = channel;
-    last_event.timestamp_us = now;
+    HAL_UART_Transmit(&huart3, (uint8_t *)&ch, 1, HAL_MAX_DELAY);
+    return ch;
 }
 
 /* USER CODE END 4 */
