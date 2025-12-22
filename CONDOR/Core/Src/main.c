@@ -140,7 +140,7 @@ int main(void)
   /* USER CODE BEGIN 2 */
   HAL_NVIC_SetPriority(TIM2_IRQn, 1, 0);
   HAL_NVIC_EnableIRQ(TIM2_IRQn);
-  HAL_TIM_Base_Start_IT(&htim2);
+  HAL_TIM_Base_Start(&htim2);
   HAL_TIM_IC_Start_DMA(&htim2, TIM_CHANNEL_1, ic_ch1_buf, IC_BUF_LEN);
   HAL_TIM_IC_Start_DMA(&htim2, TIM_CHANNEL_2, ic_ch2_buf, IC_BUF_LEN);
   HAL_TIM_IC_Start_DMA(&htim2, TIM_CHANNEL_3, ic_ch3_buf, IC_BUF_LEN);
@@ -406,23 +406,26 @@ static void MX_GPIO_Init(void)
 /* USER CODE BEGIN 4 */
 
 // En esta función hacemos el callback del DMA se ejecute cuando el buffer esté completo
-void HAL_TIM_IC_DMACompleteCallback(TIM_HandleTypeDef *htim)
+void HAL_DMA_XferCpltCallback(DMA_HandleTypeDef *hdma)
 {
-    if (htim->Instance == TIM2)
+    if (hdma == &hdma_tim2_ch1)
     {
-        if (htim->Channel == HAL_TIM_ACTIVE_CHANNEL_1)
-            ic_ch1_ready = 1;
-
-        else if (htim->Channel == HAL_TIM_ACTIVE_CHANNEL_2)
-            ic_ch2_ready = 1;
-
-        else if (htim->Channel == HAL_TIM_ACTIVE_CHANNEL_3)
-            ic_ch3_ready = 1;
-
-        else if (htim->Channel == HAL_TIM_ACTIVE_CHANNEL_4)
-            ic_ch4_ready = 1;
+        ic_ch1_ready = 1;
+    }
+    else if (hdma == &hdma_tim2_ch2)
+    {
+        ic_ch2_ready = 1;
+    }
+    else if (hdma == &hdma_tim2_ch3)
+    {
+        ic_ch3_ready = 1;
+    }
+    else if (hdma == &hdma_tim2_ch4)
+    {
+        ic_ch4_ready = 1;
     }
 }
+
 
 // Función para imprimir los buffers
 void Print_IC_Buffer(uint8_t ch, uint32_t *buf, uint32_t len)
