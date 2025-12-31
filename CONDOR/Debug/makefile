@@ -60,8 +60,8 @@ all: main-build
 main-build: CONDOR.elf secondary-outputs
 
 # Tool invocations
-CONDOR.elf CONDOR.map: $(OBJS) $(USER_OBJS) C:\Users\pablo\STM32CubeIDE\workspace_1.18.1\CONDOR\STM32H723ZGTX_FLASH.ld makefile objects.list $(OPTIONAL_TOOL_DEPS)
-	arm-none-eabi-gcc -o "CONDOR.elf" @"objects.list" $(USER_OBJS) $(LIBS) -mcpu=cortex-m7 -T"C:\Users\pablo\STM32CubeIDE\workspace_1.18.1\CONDOR\STM32H723ZGTX_FLASH.ld" --specs=nosys.specs -Wl,-Map="CONDOR.map" -Wl,--gc-sections -static --specs=nano.specs -mfpu=fpv5-d16 -mfloat-abi=hard -mthumb -Wl,--start-group -lc -lm -Wl,--end-group
+CONDOR.elf CONDOR.map: $(OBJS) $(USER_OBJS) C:\Users\Pablo\STM32CubeIDE\workspace_1.18.1\CONDOR\STM32H723ZGTX_FLASH.ld makefile objects.list $(OPTIONAL_TOOL_DEPS)
+	arm-none-eabi-gcc -o "CONDOR.elf" @"objects.list" $(USER_OBJS) $(LIBS) -mcpu=cortex-m7 -T"C:\Users\Pablo\STM32CubeIDE\workspace_1.18.1\CONDOR\STM32H723ZGTX_FLASH.ld" --specs=nosys.specs -Wl,-Map="CONDOR.map" -Wl,--gc-sections -static --specs=nano.specs -mfpu=fpv5-d16 -mfloat-abi=hard -mthumb -Wl,--start-group -lc -lm -Wl,--end-group
 	@echo 'Finished building target: $@'
 	@echo ' '
 

@@ -27,19 +27,42 @@
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
+typedef enum {
+    PULSE_IDLE = 0,
+    PULSE_WAIT_RISING
+} PulseState;
+
 typedef struct {
     uint8_t channel;
     uint32_t timestamp;
 } Event;
 
+typedef struct {
+    uint32_t t_start;
+    uint32_t t_end;
+    uint32_t width;
+} PulseEvent;
+
+typedef struct {
+    PulseState state;
+    uint32_t t_start;
+} PulseFSM;
+
 /* USER CODE END PTD */
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
+#define TIM_CLK_HZ        170000000UL
+#define PULSE_TIMEOUT_US 50UL   // ejemplo: 50 microsegundos
+#define PULSE_TIMEOUT_TICKS (TIM_CLK_HZ / 1000000UL * PULSE_TIMEOUT_US)
+
+
+#define PULSE_BUF_LEN 64
+
 #define PUTCHAR_PROTOTYPE 		int __io_putchar(int ch)
 
-#define IC_BUF_LEN 16
-#define MAX_EVENTS 128
+#define IC_BUF_LEN         16
+#define MAX_EVENTS         128
 
 #define COINCIDENCE_WINDOW 2000
 /* USER CODE END PD */
@@ -51,6 +74,7 @@ typedef struct {
 
 /* Private variables ---------------------------------------------------------*/
 
+
 TIM_HandleTypeDef htim2;
 DMA_HandleTypeDef hdma_tim2_ch1;
 DMA_HandleTypeDef hdma_tim2_ch2;
@@ -60,6 +84,15 @@ DMA_HandleTypeDef hdma_tim2_ch4;
 UART_HandleTypeDef huart3;
 
 /* USER CODE BEGIN PV */
+
+/* Maquina de estados para procesar los tiempos */
+volatile PulseFSM pulse_fsm_ch1 = {
+    .state = PULSE_IDLE,
+    .t_start = 0
+};
+
+volatile PulseEvent pulse_buffer[PULSE_BUF_LEN];
+volatile uint32_t pulse_index = 0; 
 
 /* Buffers DMA por canal */
 uint32_t ic_ch1_buf[IC_BUF_LEN];
@@ -156,26 +189,42 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
+      if (pulse_fsm_ch1.state == PULSE_WAIT_RISING)
+      {
+          uint32_t now = __HAL_TIM_GET_COUNTER(&htim2);
+          uint32_t dt = now - pulse_fsm_ch1.t_start;
+
+          if (dt > PULSE_TIMEOUT_TICKS)
+          {
+              pulse_fsm_ch1.state = PULSE_IDLE;
+          }
+          
+      }
+
       if (ic_ch1_ready)
       {
           ic_ch1_ready = 0;
-          Print_IC_Buffer(1, ic_ch1_buf, IC_BUF_LEN);
+          Process_Falling_Buffer(ic_ch1_buf, IC_BUF_LEN);
+          //Print_IC_Buffer(1, ic_ch1_buf, IC_BUF_LEN);
       }
       if (ic_ch2_ready)
       {
           ic_ch2_ready = 0;
-          Print_IC_Buffer(2, ic_ch2_buf, IC_BUF_LEN);
+          Process_Rising_Buffer(ic_ch2_buf, IC_BUF_LEN);
+          //Print_IC_Buffer(2, ic_ch2_buf, IC_BUF_LEN);
       }
-      if (ic_ch3_ready)
-      {
-          ic_ch3_ready = 0;
-          Print_IC_Buffer(3, ic_ch3_buf, IC_BUF_LEN);
-      }
-      if (ic_ch4_ready)
-      {
-          ic_ch4_ready = 0;
-          Print_IC_Buffer(4, ic_ch4_buf, IC_BUF_LEN);
-      }
+      //if (ic_ch3_ready)
+      //{
+      //    ic_ch3_ready = 0;
+      //    Process_Falling_Buffer(ic_ch3_buf, IC_BUF_LEN);
+      //    //Print_IC_Buffer(3, ic_ch3_buf, IC_BUF_LEN);
+      //}
+      //if (ic_ch4_ready)
+      //{
+      //    ic_ch4_ready = 0;
+      //    Process_Rising_Buffer(ic_ch4_buf, IC_BUF_LEN);
+      //    //Print_IC_Buffer(4, ic_ch4_buf, IC_BUF_LEN);
+      //}
   }
   /* USER CODE END 3 */
 }
@@ -435,6 +484,65 @@ void Print_IC_Buffer(uint8_t ch, uint32_t *buf, uint32_t len)
         printf("EVENTO: CH%u | t=%lu\r\n", ch, buf[i]);
     }
 }
+
+void Process_Falling_Buffer(uint32_t *buf, uint32_t len)
+{
+    for (uint32_t i = 0; i < len; i++)
+    {
+        uint32_t t = buf[i]; // ticks crudos del timer
+
+        if (pulse_fsm_ch1.state == PULSE_IDLE)
+        {
+            pulse_fsm_ch1.t_start = t;
+            pulse_fsm_ch1.state = PULSE_WAIT_RISING;
+        }
+        else
+        {
+            // Bajada inesperada → descartar
+            pulse_fsm_ch1.state = PULSE_IDLE;
+        }
+    }
+}
+
+void Process_Rising_Buffer(uint32_t *buf, uint32_t len)
+{
+    for (uint32_t i = 0; i < len; i++)
+    {
+        uint32_t t = buf[i];
+
+        if (pulse_fsm_ch1.state == PULSE_WAIT_RISING)
+        {
+            uint32_t width = t - pulse_fsm_ch1.t_start;
+
+            // Implementación del Timeout
+            if (width <= PULSE_TIMEOUT_TICKS)
+            {
+                pulse_buffer[pulse_index].t_start = pulse_fsm_ch1.t_start;
+                pulse_buffer[pulse_index].t_end   = t;
+                pulse_buffer[pulse_index].width   = width;
+
+                pulse_index++;
+
+                if (pulse_index >= PULSE_BUF_LEN)
+                {
+                    printf("---- PULSOS ----\r\n");
+                    for (uint32_t j = 0; j < PULSE_BUF_LEN; j++)
+                    {
+                        printf("START=%lu | END=%lu | WIDTH=%lu ticks\r\n",
+                               pulse_buffer[j].t_start,
+                               pulse_buffer[j].t_end,
+                               pulse_buffer[j].width);
+                    }
+                    pulse_index = 0;
+                }
+            }
+
+            pulse_fsm_ch1.state = PULSE_IDLE;
+        }
+    }
+}
+
+
 
 
 // En standby, primero hay que ver como se almacenan los timestamp en los buffers
