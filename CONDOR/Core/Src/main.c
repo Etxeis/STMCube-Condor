@@ -52,8 +52,8 @@ typedef struct {
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-#define TIM_CLK_HZ        170000000UL
-#define PULSE_TIMEOUT_US 50UL   // ejemplo: 50 microsegundos
+#define TIM_CLK_HZ 85000000UL
+#define PULSE_TIMEOUT_US 1UL   // ejemplo: 50 microsegundos
 #define PULSE_TIMEOUT_TICKS (TIM_CLK_HZ / 1000000UL * PULSE_TIMEOUT_US)
 
 
@@ -73,7 +73,6 @@ typedef struct {
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
-
 
 TIM_HandleTypeDef htim2;
 DMA_HandleTypeDef hdma_tim2_ch1;
@@ -446,6 +445,7 @@ static void MX_GPIO_Init(void)
   /* GPIO Ports Clock Enable */
   __HAL_RCC_GPIOA_CLK_ENABLE();
   __HAL_RCC_GPIOB_CLK_ENABLE();
+  __HAL_RCC_GPIOD_CLK_ENABLE();
 
   /* USER CODE BEGIN MX_GPIO_Init_2 */
 
@@ -455,24 +455,39 @@ static void MX_GPIO_Init(void)
 /* USER CODE BEGIN 4 */
 
 // En esta función hacemos el callback del DMA se ejecute cuando el buffer esté completo
-void HAL_DMA_XferCpltCallback(DMA_HandleTypeDef *hdma)
+//void HAL_DMA_XferCpltCallback(DMA_HandleTypeDef *hdma)
+//{
+//    if (hdma == &hdma_tim2_ch1)
+//    {
+//        ic_ch1_ready = 1;
+//    }
+//    else if (hdma == &hdma_tim2_ch2)
+//    {
+//        ic_ch2_ready = 1;
+//    }
+//    else if (hdma == &hdma_tim2_ch3)
+//    {
+//        ic_ch3_ready = 1;
+//    }
+//    else if (hdma == &hdma_tim2_ch4)
+//    {
+//        ic_ch4_ready = 1;
+//    }
+//}
+
+void HAL_TIM_IC_CaptureCpltCallback(TIM_HandleTypeDef *htim)
 {
-    if (hdma == &hdma_tim2_ch1)
-    {
+    if (htim->Instance != TIM2)
+        return;
+
+    if (htim->Channel == HAL_TIM_ACTIVE_CHANNEL_1)
         ic_ch1_ready = 1;
-    }
-    else if (hdma == &hdma_tim2_ch2)
-    {
+    else if (htim->Channel == HAL_TIM_ACTIVE_CHANNEL_2)
         ic_ch2_ready = 1;
-    }
-    else if (hdma == &hdma_tim2_ch3)
-    {
+    else if (htim->Channel == HAL_TIM_ACTIVE_CHANNEL_3)
         ic_ch3_ready = 1;
-    }
-    else if (hdma == &hdma_tim2_ch4)
-    {
+    else if (htim->Channel == HAL_TIM_ACTIVE_CHANNEL_4)
         ic_ch4_ready = 1;
-    }
 }
 
 
@@ -498,7 +513,7 @@ void Process_Falling_Buffer(uint32_t *buf, uint32_t len)
         }
         else
         {
-            // Bajada inesperada → descartar
+            // Bajada inesperada, entonces descartar
             pulse_fsm_ch1.state = PULSE_IDLE;
         }
     }
@@ -523,15 +538,13 @@ void Process_Rising_Buffer(uint32_t *buf, uint32_t len)
 
                 pulse_index++;
 
+                // Esta logica comienza una vez que el buffer se llena, entonces imprime los datos del buffer almacenados
                 if (pulse_index >= PULSE_BUF_LEN)
                 {
                     printf("---- PULSOS ----\r\n");
                     for (uint32_t j = 0; j < PULSE_BUF_LEN; j++)
                     {
-                        printf("START=%lu | END=%lu | WIDTH=%lu ticks\r\n",
-                               pulse_buffer[j].t_start,
-                               pulse_buffer[j].t_end,
-                               pulse_buffer[j].width);
+                        printf("START=%lu | END=%lu | WIDTH=%lu ticks\r\n", pulse_buffer[j].t_start, pulse_buffer[j].t_end, pulse_buffer[j].width);
                     }
                     pulse_index = 0;
                 }
