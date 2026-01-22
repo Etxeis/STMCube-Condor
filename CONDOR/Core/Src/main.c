@@ -37,6 +37,7 @@ typedef struct {
     uint32_t timestamp;
 } Event;
 
+// Maquinas de estado que definen el estado en el que se encuentra el pulso
 typedef struct {
     uint32_t t_start;
     uint32_t t_end;
@@ -173,6 +174,7 @@ int main(void)
   HAL_NVIC_SetPriority(TIM2_IRQn, 1, 0);
   HAL_NVIC_EnableIRQ(TIM2_IRQn);
   HAL_TIM_Base_Start(&htim2);
+
   HAL_TIM_IC_Start_DMA(&htim2, TIM_CHANNEL_1, ic_ch1_buf, IC_BUF_LEN);
   HAL_TIM_IC_Start_DMA(&htim2, TIM_CHANNEL_2, ic_ch2_buf, IC_BUF_LEN);
   HAL_TIM_IC_Start_DMA(&htim2, TIM_CHANNEL_3, ic_ch3_buf, IC_BUF_LEN);
@@ -193,6 +195,7 @@ int main(void)
           uint32_t now = __HAL_TIM_GET_COUNTER(&htim2);
           uint32_t dt = now - pulse_fsm_ch1.t_start;
 
+          // Codigo del Timeout para resetear el estado si es que no se decta un flanco de subida en un tiempo defonido (1 microsegundos)
           if (dt > PULSE_TIMEOUT_TICKS)
           {
               pulse_fsm_ch1.state = PULSE_IDLE;
@@ -200,27 +203,32 @@ int main(void)
           
       }
 
+      // Detecta el flanco de Bajada y de Subida (CH1)
       if (ic_ch1_ready)
       {
           ic_ch1_ready = 0;
           Process_Falling_Buffer(ic_ch1_buf, IC_BUF_LEN);
+          Process_Rising_Buffer(ic_ch2_buf, IC_BUF_LEN);
           //Print_IC_Buffer(1, ic_ch1_buf, IC_BUF_LEN);
       }
-      if (ic_ch2_ready)
-      {
-          ic_ch2_ready = 0;
-          Process_Rising_Buffer(ic_ch2_buf, IC_BUF_LEN);
-          //Print_IC_Buffer(2, ic_ch2_buf, IC_BUF_LEN);
-      }
+      //if (ic_ch2_ready)
+      //{
+      //    ic_ch2_ready = 0;
+      //    Process_Falling_Buffer(ic_ch1_buf, IC_BUF_LEN);
+      //    Process_Rising_Buffer(ic_ch2_buf, IC_BUF_LEN);
+      //    //Print_IC_Buffer(2, ic_ch2_buf, IC_BUF_LEN);
+      //}
       //if (ic_ch3_ready)
       //{
       //    ic_ch3_ready = 0;
       //    Process_Falling_Buffer(ic_ch3_buf, IC_BUF_LEN);
+      //    Process_Rising_Buffer(ic_ch4_buf, IC_BUF_LEN);
       //    //Print_IC_Buffer(3, ic_ch3_buf, IC_BUF_LEN);
       //}
       //if (ic_ch4_ready)
       //{
       //    ic_ch4_ready = 0;
+      //    Process_Falling_Buffer(ic_ch3_buf, IC_BUF_LEN);
       //    Process_Rising_Buffer(ic_ch4_buf, IC_BUF_LEN);
       //    //Print_IC_Buffer(4, ic_ch4_buf, IC_BUF_LEN);
       //}
@@ -331,7 +339,7 @@ static void MX_TIM2_Init(void)
   {
     Error_Handler();
   }
-  sConfigIC.ICPolarity = TIM_INPUTCHANNELPOLARITY_FALLING;
+  sConfigIC.ICPolarity = TIM_INPUTCHANNELPOLARITY_BOTHEDGE;
   sConfigIC.ICSelection = TIM_ICSELECTION_DIRECTTI;
   sConfigIC.ICPrescaler = TIM_ICPSC_DIV1;
   sConfigIC.ICFilter = 0;
@@ -339,7 +347,6 @@ static void MX_TIM2_Init(void)
   {
     Error_Handler();
   }
-  sConfigIC.ICPolarity = TIM_INPUTCHANNELPOLARITY_RISING;
   if (HAL_TIM_IC_ConfigChannel(&htim2, &sConfigIC, TIM_CHANNEL_2) != HAL_OK)
   {
     Error_Handler();
@@ -428,6 +435,9 @@ static void MX_DMA_Init(void)
   /* DMA1_Stream3_IRQn interrupt configuration */
   HAL_NVIC_SetPriority(DMA1_Stream3_IRQn, 0, 0);
   HAL_NVIC_EnableIRQ(DMA1_Stream3_IRQn);
+  /* DMAMUX1_OVR_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(DMAMUX1_OVR_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(DMAMUX1_OVR_IRQn);
 
 }
 
@@ -455,41 +465,29 @@ static void MX_GPIO_Init(void)
 /* USER CODE BEGIN 4 */
 
 // En esta función hacemos el callback del DMA se ejecute cuando el buffer esté completo
-//void HAL_DMA_XferCpltCallback(DMA_HandleTypeDef *hdma)
-//{
-//    if (hdma == &hdma_tim2_ch1)
-//    {
-//        ic_ch1_ready = 1;
-//    }
-//    else if (hdma == &hdma_tim2_ch2)
-//    {
-//        ic_ch2_ready = 1;
-//    }
-//    else if (hdma == &hdma_tim2_ch3)
-//    {
-//        ic_ch3_ready = 1;
-//    }
-//    else if (hdma == &hdma_tim2_ch4)
-//    {
-//        ic_ch4_ready = 1;
-//    }
-//}
-
-void HAL_TIM_IC_CaptureCpltCallback(TIM_HandleTypeDef *htim)
+void HAL_TIM_IC_CaptureCallback(TIM_HandleTypeDef *htim)
 {
-    if (htim->Instance != TIM2)
-        return;
-
-    if (htim->Channel == HAL_TIM_ACTIVE_CHANNEL_1)
+    if ((htim->Channel == HAL_TIM_ACTIVE_CHANNEL_1) || 
+            (htim->hdma[TIM_DMA_ID_CC1] != NULL && htim->hdma[TIM_DMA_ID_CC1]->State == HAL_DMA_STATE_READY))
+    {
         ic_ch1_ready = 1;
-    else if (htim->Channel == HAL_TIM_ACTIVE_CHANNEL_2)
+    }
+    if ((htim->Channel == HAL_TIM_ACTIVE_CHANNEL_2) || 
+            (htim->hdma[TIM_DMA_ID_CC2] != NULL && htim->hdma[TIM_DMA_ID_CC2]->State == HAL_DMA_STATE_READY))
+    {
         ic_ch2_ready = 1;
-    else if (htim->Channel == HAL_TIM_ACTIVE_CHANNEL_3)
+    }
+    if ((htim->Channel == HAL_TIM_ACTIVE_CHANNEL_3) || 
+            (htim->hdma[TIM_DMA_ID_CC3] != NULL && htim->hdma[TIM_DMA_ID_CC3]->State == HAL_DMA_STATE_READY))
+    {
         ic_ch3_ready = 1;
-    else if (htim->Channel == HAL_TIM_ACTIVE_CHANNEL_4)
+    }
+    if ((htim->Channel == HAL_TIM_ACTIVE_CHANNEL_4) || 
+            (htim->hdma[TIM_DMA_ID_CC4] != NULL && htim->hdma[TIM_DMA_ID_CC4]->State == HAL_DMA_STATE_READY))
+    {
         ic_ch4_ready = 1;
+    }
 }
-
 
 // Función para imprimir los buffers
 void Print_IC_Buffer(uint8_t ch, uint32_t *buf, uint32_t len)
@@ -506,6 +504,7 @@ void Process_Falling_Buffer(uint32_t *buf, uint32_t len)
     {
         uint32_t t = buf[i]; // ticks crudos del timer
 
+        // Cambios en la maquina de estados (ocurre una bajada por lo que se queda esperando flanco de subida una vez que ocurre una bajada)
         if (pulse_fsm_ch1.state == PULSE_IDLE)
         {
             pulse_fsm_ch1.t_start = t;
@@ -525,6 +524,7 @@ void Process_Rising_Buffer(uint32_t *buf, uint32_t len)
     {
         uint32_t t = buf[i];
 
+        // Detecta el cambio al flanco de subida por lo que saca el ancho del pulso
         if (pulse_fsm_ch1.state == PULSE_WAIT_RISING)
         {
             uint32_t width = t - pulse_fsm_ch1.t_start;
@@ -532,6 +532,7 @@ void Process_Rising_Buffer(uint32_t *buf, uint32_t len)
             // Implementación del Timeout
             if (width <= PULSE_TIMEOUT_TICKS)
             {
+                // Se almacenan los valores de el ancho de pulso y los timestamps de subida y bajada de flancos
                 pulse_buffer[pulse_index].t_start = pulse_fsm_ch1.t_start;
                 pulse_buffer[pulse_index].t_end   = t;
                 pulse_buffer[pulse_index].width   = width;
@@ -555,71 +556,6 @@ void Process_Rising_Buffer(uint32_t *buf, uint32_t len)
     }
 }
 
-
-
-
-// En standby, primero hay que ver como se almacenan los timestamp en los buffers
-/* Inserta evento y detecta coincidencias */
-//static inline void push_event(uint8_t ch, uint32_t ts_low)
-//{
-//    uint32_t ts = (timer_high << 32) | ts_low;
-//
-//    event_buffer[event_index].channel   = ch;
-//    event_buffer[event_index].timestamp = ts;
-//    event_index = (event_index + 1) % MAX_EVENTS;
-//
-//    if (last_event.channel != 0)
-//    {
-//        uint32_t dt =
-//            (ts > last_event.timestamp)
-//            ? (ts - last_event.timestamp)
-//            : (last_event.timestamp - ts);
-//
-//        if (dt <= COINCIDENCE_WINDOW)
-//        {
-//            printf("COINCIDENCIA: CH%u & CH%u | t=%llu | dt=%llu\r\n",
-//                   last_event.channel, ch, ts, dt);
-//        }
-//        else
-//        {
-//            printf("EVENTO: CH%u | t=%llu\r\n", ch, ts);
-//        }
-//    }
-//    else
-//    {
-//        printf("EVENTO: CH%u | t=%llu\r\n", ch, ts);
-//    }
-//
-//    last_event.channel   = ch;
-//    last_event.timestamp = ts;
-//}
-
-// NO es necesario, ya se sabe cual es el canal correspondiente a cada buffer
-/* Callback DMA Input Capture */
-//void HAL_TIM_IC_CaptureCpltCallback(TIM_HandleTypeDef *htim)
-//{
-//    if (htim->Instance != TIM2)
-//        return;
-//
-//    uint8_t ch = 0;
-//    uint32_t *buf = NULL;
-//
-//    if (htim->Channel == HAL_TIM_ACTIVE_CHANNEL_1)
-//        { ch = 1; buf = ic_ch1_buf; }
-//    else if (htim->Channel == HAL_TIM_ACTIVE_CHANNEL_2)
-//        { ch = 2; buf = ic_ch2_buf; }
-//    else if (htim->Channel == HAL_TIM_ACTIVE_CHANNEL_3)
-//        { ch = 3; buf = ic_ch3_buf; }
-//    else if (htim->Channel == HAL_TIM_ACTIVE_CHANNEL_4)
-//        { ch = 4; buf = ic_ch4_buf; }
-//
-//    if (!buf)
-//        return;
-//
-//    for (uint32_t i = 0; i < IC_BUF_LEN; i++)
-//        push_event(ch, buf[i]);
-//}
-//
 
 /* Overflow del TIM2 → extiende a 64 bits */
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
