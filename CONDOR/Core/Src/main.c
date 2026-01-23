@@ -91,8 +91,32 @@ volatile PulseFSM pulse_fsm_ch1 = {
     .t_start = 0
 };
 
-volatile PulseEvent pulse_buffer[PULSE_BUF_LEN];
-volatile uint32_t pulse_index = 0; 
+volatile PulseFSM pulse_fsm_ch2 = {
+    .state = PULSE_IDLE,
+    .t_start = 0
+};
+
+volatile PulseFSM pulse_fsm_ch3 = {
+    .state = PULSE_IDLE,
+    .t_start = 0
+};
+
+volatile PulseFSM pulse_fsm_ch4 = {
+    .state = PULSE_IDLE,
+    .t_start = 0
+};
+
+volatile PulseEvent pulse_buffer_ch1[PULSE_BUF_LEN];
+volatile uint32_t pulse_index_ch1 = 0; 
+
+volatile PulseEvent pulse_buffer_ch2[PULSE_BUF_LEN];
+volatile uint32_t pulse_index_ch2 = 0; 
+
+volatile PulseEvent pulse_buffer_ch3[PULSE_BUF_LEN];
+volatile uint32_t pulse_index_ch3 = 0; 
+
+volatile PulseEvent pulse_buffer_ch4[PULSE_BUF_LEN];
+volatile uint32_t pulse_index_ch4 = 0; 
 
 /* Buffers DMA por canal */
 uint32_t ic_ch1_buf[IC_BUF_LEN];
@@ -203,35 +227,80 @@ int main(void)
           
       }
 
+      if (pulse_fsm_ch2.state == PULSE_WAIT_RISING)
+      {
+          uint32_t now = __HAL_TIM_GET_COUNTER(&htim2);
+          uint32_t dt = now - pulse_fsm_ch2.t_start;
+
+          // Codigo del Timeout para resetear el estado si es que no se decta un flanco de subida en un tiempo defonido (1 microsegundos)
+          if (dt > PULSE_TIMEOUT_TICKS)
+          {
+              pulse_fsm_ch2.state = PULSE_IDLE;
+          }
+          
+      }
+
+      if (pulse_fsm_ch3.state == PULSE_WAIT_RISING)
+      {
+          uint32_t now = __HAL_TIM_GET_COUNTER(&htim2);
+          uint32_t dt = now - pulse_fsm_ch3.t_start;
+
+          // Codigo del Timeout para resetear el estado si es que no se decta un flanco de subida en un tiempo defonido (1 microsegundos)
+          if (dt > PULSE_TIMEOUT_TICKS)
+          {
+              pulse_fsm_ch3.state = PULSE_IDLE;
+          }
+          
+      }
+
+      if (pulse_fsm_ch4.state == PULSE_WAIT_RISING)
+      {
+          uint32_t now = __HAL_TIM_GET_COUNTER(&htim2);
+          uint32_t dt = now - pulse_fsm_ch4.t_start;
+
+          // Codigo del Timeout para resetear el estado si es que no se decta un flanco de subida en un tiempo defonido (1 microsegundos)
+          if (dt > PULSE_TIMEOUT_TICKS)
+          {
+              pulse_fsm_ch4.state = PULSE_IDLE;
+          }
+          
+      }
+
+
+
       // Detecta el flanco de Bajada y de Subida (CH1)
       if (ic_ch1_ready)
       {
           ic_ch1_ready = 0;
-          Process_Falling_Buffer(ic_ch1_buf, IC_BUF_LEN);
-          Process_Rising_Buffer(ic_ch2_buf, IC_BUF_LEN);
+          Process_IC_Buffer_CH1(ic_ch1_buf, IC_BUF_LEN);
+          //Process_Falling_Buffer(ic_ch1_buf, IC_BUF_LEN);
+          //Process_Rising_Buffer(ic_ch2_buf, IC_BUF_LEN);
           //Print_IC_Buffer(1, ic_ch1_buf, IC_BUF_LEN);
       }
-      //if (ic_ch2_ready)
-      //{
-      //    ic_ch2_ready = 0;
-      //    Process_Falling_Buffer(ic_ch1_buf, IC_BUF_LEN);
-      //    Process_Rising_Buffer(ic_ch2_buf, IC_BUF_LEN);
-      //    //Print_IC_Buffer(2, ic_ch2_buf, IC_BUF_LEN);
-      //}
-      //if (ic_ch3_ready)
-      //{
-      //    ic_ch3_ready = 0;
-      //    Process_Falling_Buffer(ic_ch3_buf, IC_BUF_LEN);
-      //    Process_Rising_Buffer(ic_ch4_buf, IC_BUF_LEN);
-      //    //Print_IC_Buffer(3, ic_ch3_buf, IC_BUF_LEN);
-      //}
-      //if (ic_ch4_ready)
-      //{
-      //    ic_ch4_ready = 0;
-      //    Process_Falling_Buffer(ic_ch3_buf, IC_BUF_LEN);
-      //    Process_Rising_Buffer(ic_ch4_buf, IC_BUF_LEN);
-      //    //Print_IC_Buffer(4, ic_ch4_buf, IC_BUF_LEN);
-      //}
+      if (ic_ch2_ready)
+      {
+          ic_ch2_ready = 0;
+          Process_IC_Buffer_CH2(ic_ch2_buf, IC_BUF_LEN);
+          //Process_Falling_Buffer(ic_ch1_buf, IC_BUF_LEN);
+          //Process_Rising_Buffer(ic_ch2_buf, IC_BUF_LEN);
+          //Print_IC_Buffer(2, ic_ch2_buf, IC_BUF_LEN);
+      }
+      if (ic_ch3_ready)
+      {
+          ic_ch3_ready = 0;
+          Process_IC_Buffer_CH3(ic_ch3_buf, IC_BUF_LEN);
+          //Process_Falling_Buffer(ic_ch3_buf, IC_BUF_LEN);
+          //Process_Rising_Buffer(ic_ch4_buf, IC_BUF_LEN);
+          //Print_IC_Buffer(3, ic_ch3_buf, IC_BUF_LEN);
+      }
+      if (ic_ch4_ready)
+      {
+          ic_ch4_ready = 0;
+          Process_IC_Buffer_CH4(ic_ch4_buf, IC_BUF_LEN);
+          //Process_Falling_Buffer(ic_ch3_buf, IC_BUF_LEN);
+          //Process_Rising_Buffer(ic_ch4_buf, IC_BUF_LEN);
+          //Print_IC_Buffer(4, ic_ch4_buf, IC_BUF_LEN);
+      }
   }
   /* USER CODE END 3 */
 }
@@ -435,9 +504,6 @@ static void MX_DMA_Init(void)
   /* DMA1_Stream3_IRQn interrupt configuration */
   HAL_NVIC_SetPriority(DMA1_Stream3_IRQn, 0, 0);
   HAL_NVIC_EnableIRQ(DMA1_Stream3_IRQn);
-  /* DMAMUX1_OVR_IRQn interrupt configuration */
-  HAL_NVIC_SetPriority(DMAMUX1_OVR_IRQn, 0, 0);
-  HAL_NVIC_EnableIRQ(DMAMUX1_OVR_IRQn);
 
 }
 
@@ -498,56 +564,40 @@ void Print_IC_Buffer(uint8_t ch, uint32_t *buf, uint32_t len)
     }
 }
 
-void Process_Falling_Buffer(uint32_t *buf, uint32_t len)
-{
-    for (uint32_t i = 0; i < len; i++)
-    {
-        uint32_t t = buf[i]; // ticks crudos del timer
-
-        // Cambios en la maquina de estados (ocurre una bajada por lo que se queda esperando flanco de subida una vez que ocurre una bajada)
-        if (pulse_fsm_ch1.state == PULSE_IDLE)
-        {
-            pulse_fsm_ch1.t_start = t;
-            pulse_fsm_ch1.state = PULSE_WAIT_RISING;
-        }
-        else
-        {
-            // Bajada inesperada, entonces descartar
-            pulse_fsm_ch1.state = PULSE_IDLE;
-        }
-    }
-}
-
-void Process_Rising_Buffer(uint32_t *buf, uint32_t len)
+void Process_IC_Buffer_CH1(uint32_t *buf, uint32_t len)
 {
     for (uint32_t i = 0; i < len; i++)
     {
         uint32_t t = buf[i];
 
-        // Detecta el cambio al flanco de subida por lo que saca el ancho del pulso
-        if (pulse_fsm_ch1.state == PULSE_WAIT_RISING)
+        if (pulse_fsm_ch1.state == PULSE_IDLE)
         {
+            // Flanco descendente: inicia detección
+            pulse_fsm_ch1.t_start = t;
+            pulse_fsm_ch1.state = PULSE_WAIT_RISING;
+        }
+        else if (pulse_fsm_ch1.state == PULSE_WAIT_RISING)
+        {
+            // Flanco ascendente: calcula ancho
             uint32_t width = t - pulse_fsm_ch1.t_start;
 
-            // Implementación del Timeout
-            if (width <= PULSE_TIMEOUT_TICKS)
+            if (width > 0 && width <= PULSE_TIMEOUT_TICKS)
             {
-                // Se almacenan los valores de el ancho de pulso y los timestamps de subida y bajada de flancos
-                pulse_buffer[pulse_index].t_start = pulse_fsm_ch1.t_start;
-                pulse_buffer[pulse_index].t_end   = t;
-                pulse_buffer[pulse_index].width   = width;
+                pulse_buffer_ch1[pulse_index_ch1].t_start = pulse_fsm_ch1.t_start;
+                pulse_buffer_ch1[pulse_index_ch1].t_end   = t;
+                pulse_buffer_ch1[pulse_index_ch1].width   = width;
+                pulse_index_ch1++;
 
-                pulse_index++;
-
-                // Esta logica comienza una vez que el buffer se llena, entonces imprime los datos del buffer almacenados
-                if (pulse_index >= PULSE_BUF_LEN)
+                if (pulse_index_ch1 >= PULSE_BUF_LEN)
                 {
-                    printf("---- PULSOS ----\r\n");
+                    printf("==== PULSOS CH1 ====\r\n");
                     for (uint32_t j = 0; j < PULSE_BUF_LEN; j++)
                     {
-                        printf("START=%lu | END=%lu | WIDTH=%lu ticks\r\n", pulse_buffer[j].t_start, pulse_buffer[j].t_end, pulse_buffer[j].width);
+                        printf("CH1 PULSO %lu: WIDTH=%lu ticks (%.2f us)\r\n", 
+                               j, pulse_buffer_ch1[j].width,
+                               (float)pulse_buffer_ch1[j].width / (TIM_CLK_HZ / 1000000.0f));
                     }
-                    pulse_index = 0;
+                    pulse_index_ch1 = 0;
                 }
             }
 
@@ -555,6 +605,185 @@ void Process_Rising_Buffer(uint32_t *buf, uint32_t len)
         }
     }
 }
+
+void Process_IC_Buffer_CH2(uint32_t *buf, uint32_t len)
+{
+    for (uint32_t i = 0; i < len; i++)
+    {
+        uint32_t t = buf[i];
+
+        if (pulse_fsm_ch2.state == PULSE_IDLE)
+        {
+            pulse_fsm_ch2.t_start = t;
+            pulse_fsm_ch2.state = PULSE_WAIT_RISING;
+        }
+        else if (pulse_fsm_ch2.state == PULSE_WAIT_RISING)
+        {
+            uint32_t width = t - pulse_fsm_ch2.t_start;
+
+            if (width > 0 && width <= PULSE_TIMEOUT_TICKS)
+            {
+                pulse_buffer_ch2[pulse_index_ch2].t_start = pulse_fsm_ch2.t_start;
+                pulse_buffer_ch2[pulse_index_ch2].t_end   = t;
+                pulse_buffer_ch2[pulse_index_ch2].width   = width;
+                pulse_index_ch2++;
+
+                if (pulse_index_ch2 >= PULSE_BUF_LEN)
+                {
+                    printf("==== PULSOS CH2 ====\r\n");
+                    for (uint32_t j = 0; j < PULSE_BUF_LEN; j++)
+                    {
+                        printf("CH2 PULSO %lu: WIDTH=%lu ticks (%.2f us)\r\n", 
+                               j, pulse_buffer_ch2[j].width,
+                               (float)pulse_buffer_ch2[j].width / (TIM_CLK_HZ / 1000000.0f));
+                    }
+                    pulse_index_ch2 = 0;
+                }
+            }
+
+            pulse_fsm_ch2.state = PULSE_IDLE;
+        }
+    }
+}
+
+void Process_IC_Buffer_CH3(uint32_t *buf, uint32_t len)
+{
+    for (uint32_t i = 0; i < len; i++)
+    {
+        uint32_t t = buf[i];
+
+        if (pulse_fsm_ch3.state == PULSE_IDLE)
+        {
+            pulse_fsm_ch3.t_start = t;
+            pulse_fsm_ch3.state = PULSE_WAIT_RISING;
+        }
+        else if (pulse_fsm_ch3.state == PULSE_WAIT_RISING)
+        {
+            uint32_t width = t - pulse_fsm_ch3.t_start;
+
+            if (width > 0 && width <= PULSE_TIMEOUT_TICKS)
+            {
+                pulse_buffer_ch3[pulse_index_ch3].t_start = pulse_fsm_ch3.t_start;
+                pulse_buffer_ch3[pulse_index_ch3].t_end   = t;
+                pulse_buffer_ch3[pulse_index_ch3].width   = width;
+                pulse_index_ch3++;
+
+                if (pulse_index_ch3 >= PULSE_BUF_LEN)
+                {
+                    printf("==== PULSOS CH3 ====\r\n");
+                    for (uint32_t j = 0; j < PULSE_BUF_LEN; j++)
+                    {
+                        printf("CH3 PULSO %lu: WIDTH=%lu ticks (%.2f us)\r\n", 
+                               j, pulse_buffer_ch3[j].width,
+                               (float)pulse_buffer_ch3[j].width / (TIM_CLK_HZ / 1000000.0f));
+                    }
+                    pulse_index_ch3 = 0;
+                }
+            }
+
+            pulse_fsm_ch3.state = PULSE_IDLE;
+        }
+    }
+}
+
+void Process_IC_Buffer_CH4(uint32_t *buf, uint32_t len)
+{
+    for (uint32_t i = 0; i < len; i++)
+    {
+        uint32_t t = buf[i];
+
+        if (pulse_fsm_ch4.state == PULSE_IDLE)
+        {
+            pulse_fsm_ch4.t_start = t;
+            pulse_fsm_ch4.state = PULSE_WAIT_RISING;
+        }
+        else if (pulse_fsm_ch4.state == PULSE_WAIT_RISING)
+        {
+            uint32_t width = t - pulse_fsm_ch4.t_start;
+
+            if (width > 0 && width <= PULSE_TIMEOUT_TICKS)
+            {
+                pulse_buffer_ch4[pulse_index_ch4].t_start = pulse_fsm_ch4.t_start;
+                pulse_buffer_ch4[pulse_index_ch4].t_end   = t;
+                pulse_buffer_ch4[pulse_index_ch4].width   = width;
+                pulse_index_ch4++;
+
+                if (pulse_index_ch4 >= PULSE_BUF_LEN)
+                {
+                    printf("==== PULSOS CH4 ====\r\n");
+                    for (uint32_t j = 0; j < PULSE_BUF_LEN; j++)
+                    {
+                        printf("CH4 PULSO %lu: WIDTH=%lu ticks (%.2f us)\r\n", 
+                               j, pulse_buffer_ch4[j].width,
+                               (float)pulse_buffer_ch4[j].width / (TIM_CLK_HZ / 1000000.0f));
+                    }
+                    pulse_index_ch4 = 0;
+                }
+            }
+
+            pulse_fsm_ch4.state = PULSE_IDLE;
+        }
+    }
+}
+
+
+//void Process_Falling_Buffer(uint32_t *buf, uint32_t len)
+//{
+//    for (uint32_t i = 0; i < len; i++)
+//    {
+//        uint32_t t = buf[i]; // ticks crudos del timer
+//
+//        // Cambios en la maquina de estados (ocurre una bajada por lo que se queda esperando flanco de subida una vez que ocurre una bajada)
+//        if (pulse_fsm_ch1.state == PULSE_IDLE)
+//        {
+//            pulse_fsm_ch1.t_start = t;
+//            pulse_fsm_ch1.state = PULSE_WAIT_RISING;
+//        }
+//        else
+//        {
+//            // Bajada inesperada, entonces descartar
+//            pulse_fsm_ch1.state = PULSE_IDLE;
+//        }
+//    }
+//}
+
+//void Process_Rising_Buffer(uint32_t *buf, uint32_t len)
+//{
+//    for (uint32_t i = 0; i < len; i++)
+//    {
+//        uint32_t t = buf[i];
+//
+//        // Detecta el cambio al flanco de subida por lo que saca el ancho del pulso
+//        if (pulse_fsm_ch1.state == PULSE_WAIT_RISING)
+//        {
+//            uint32_t width = t - pulse_fsm_ch1.t_start;
+//
+//            // Implementación del Timeout
+//            if (width <= PULSE_TIMEOUT_TICKS)
+//            {
+//                // Se almacenan los valores de el ancho de pulso y los timestamps de subida y bajada de flancos
+//                pulse_buffer[pulse_index].t_start = pulse_fsm_ch1.t_start;
+//                pulse_buffer[pulse_index].t_end   = t;
+//                pulse_buffer[pulse_index].width   = width;
+//
+//                pulse_index++;
+//
+//                // Esta logica comienza una vez que el buffer se llena, entonces imprime los datos del buffer almacenados
+//                if (pulse_index >= PULSE_BUF_LEN)
+//                {
+//                    printf("---- PULSOS ----\r\n");
+//                    for (uint32_t j = 0; j < PULSE_BUF_LEN; j++)
+//                    {
+//                        printf("START=%lu | END=%lu | WIDTH=%lu ticks\r\n", pulse_buffer[j].t_start, pulse_buffer[j].t_end, pulse_buffer[j].width);
+//                    }
+//                    pulse_index = 0;
+//                }
+//            }
+//
+//            pulse_fsm_ch1.state = PULSE_IDLE;
+//        }
+//    }
+//}
 
 
 /* Overflow del TIM2 → extiende a 64 bits */
