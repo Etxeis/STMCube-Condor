@@ -152,10 +152,10 @@ static void MX_USART3_UART_Init(void);
 /* USER CODE BEGIN PFP */
 //static inline void push_event(uint8_t ch, uint32_t ts_low);
 void Print_IC_Buffer(uint8_t ch, uint32_t *buf, uint32_t len);
-void Print_IC_Buffer_CH1(uint32_t *buf, uint32_t len);
-void Print_IC_Buffer_CH2(uint32_t *buf, uint32_t len);
-void Print_IC_Buffer_CH3(uint32_t *buf, uint32_t len);
-void Print_IC_Buffer_CH4(uint32_t *buf, uint32_t len);
+void Process_IC_Buffer_CH1(uint32_t *buf, uint32_t len);
+void Process_IC_Buffer_CH2(uint32_t *buf, uint32_t len);
+void Process_IC_Buffer_CH3(uint32_t *buf, uint32_t len);
+void Process_IC_Buffer_CH4(uint32_t *buf, uint32_t len);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
